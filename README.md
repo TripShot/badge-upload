@@ -28,7 +28,7 @@ For example if the bades are "QAZ123" and "POI987" then the badge file contains 
 
  Given this file, the uploader is invoked as follows:
  
- java -jar badgeupload.jar --config $config.props$ --badges $badges$
+ java -jar badgeupload-1.0.jar  --config $config.props$ --badges $badges$
  
  where $config.props$ is the name of the property config file described above, and $badges$ is the name of the badge file.
  
