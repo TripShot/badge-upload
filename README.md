@@ -28,8 +28,8 @@ For example if the badges are "QAZ123" and "POI987" then the badge file contains
 
  Given this file, the uploader is invoked as follows:
  
- java -jar badgeupload-1.0.jar  --config $config$ --badges $badges$
+ java -jar badgeupload-1.0.jar  --config /config/ --badges /badges/
  
- where $config$ is the name of the property config file described above, and $badges$ is the name of the badge file.
+ where /config/ is the name of the property config file described above, and /badges/ is the name of the badge file.
  
  
