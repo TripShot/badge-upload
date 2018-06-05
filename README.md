@@ -19,17 +19,22 @@ These values are provided by your account manager.
 
 ## Usage:
 
-This uploader expects a badge file. The badge file contains each badge to upload in its own line. No header or byte order mark can be present.
-For example if the badges are "QAZ123" and "POI987" then the badge file contains two lines as follows.
+This uploader expects a CSV file consisting of two columns : 'badge' and 'riderId'. This pairs each badge that has been authorized to allow entry to a vehicle
+with its corresponding rider. If using SSO, the riderId must match the id of the user as provided by the IDP.
 
-    QAZ123
-    POI987
-    
+For example if rider "ABC" has badge "QAZ123" and rider "DEF,GHI" has badge "POI987", then the badge file is as follows:
 
- Given this file, the uploader is invoked as follows:
+```
+badge,riderId
+QAZ123,ABC
+POI987,"DEF,GHI"
+```
+
+Notice that the badge "DEF,GHI" is enclosed in quotes per standard CSV encoding rules as it contains a comma.
+
+
+Given this file, the uploader is invoked as follows:
  
- java -jar badgeupload-1.0.jar  --config *config* --badges *badges*
+java -jar badgeupload-2.0.jar  --config *config* --badgesCsv *badges*
  
- where *config* is the name of the property config file described above, and *badges* is the name of the badge file.
- 
- 
+where *config* is the name of the property config file described above, and *badges* is the name of the badge file.
