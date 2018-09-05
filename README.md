@@ -30,7 +30,7 @@ QAZ123,ABC
 POI987,"DEF,GHI"
 ```
 
-Notice that the badge "DEF,GHI" is enclosed in quotes per standard CSV encoding rules as it contains a comma.
+Notice that the badge "DEF,GHI" is enclosed in quotes per standard RFC 4180 CSV encoding rules as it contains a comma.
 
 
 Given this file, the uploader is invoked as follows:
@@ -38,3 +38,6 @@ Given this file, the uploader is invoked as follows:
 java -jar badgeupload-2.0.jar  --config *config* --badgesCsv *badges*
  
 where *config* is the name of the property config file described above, and *badges* is the name of the badge file.
+
+Before uploading to Tripshot servers, each badge is hashed using HMAC-SHA256 and the badgingKey.
+
