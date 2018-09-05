@@ -1,5 +1,6 @@
 package com.tripshot.badgeupload;
 
+import com.google.api.client.http.ByteArrayContent;
 import com.google.api.client.http.GenericUrl;
 import com.google.api.client.http.HttpHeaders;
 import com.google.api.client.http.HttpRequest;
@@ -11,14 +12,18 @@ import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.JsonObjectParser;
 import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.client.util.Key;
+import com.google.api.client.util.Lists;
 import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVPrinter;
+import org.apache.commons.csv.CSVRecord;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.LineNumberReader;
 import java.nio.charset.Charset;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -64,14 +69,24 @@ public class Main {
     }
   }
 
+  private static class Row {
+    private String badge;
+    private String riderId;
+
+    public Row(String badge, String riderId) {
+      this.badge = badge;
+      this.riderId = riderId;
+    }
+  }
+
   private static void usage() {
-    throw new IllegalArgumentException("usage : --config <config file> --badges <badge file>");
+    throw new IllegalArgumentException("usage : --config <config file> --badgesCsv <badge file>");
   }
 
   public static void main(String args[]) throws IOException, InvalidKeyException, NoSuchAlgorithmException {
 
     String configFilename = null;
-    String badgeFilename = null;
+    String inputFilename = null;
 
     int k = 0;
     while ( k + 1 < args.length ) {
@@ -80,8 +95,8 @@ public class Main {
         case "--config":
           configFilename = args[k + 1];
           break;
-        case "--badges":
-          badgeFilename = args[k + 1];
+        case "--badgesCsv":
+          inputFilename = args[k + 1];
           break;
         default:
           usage();
@@ -90,7 +105,7 @@ public class Main {
       k += 2;
     }
 
-    if ( configFilename == null || badgeFilename == null )
+    if ( configFilename == null || inputFilename == null )
       usage();
 
     Properties prop = new Properties();
@@ -108,34 +123,62 @@ public class Main {
 
     HttpRequestFactory requestFactory = HTTP_TRANSPORT.createRequestFactory(request -> request.setParser(new JsonObjectParser(JSON_FACTORY)));
 
-    List<String> hashedBadges = hashBadges(badgingKey, badgeFilename);
+    List<Row> hashedRows = hashRows(badgingKey, readInput(inputFilename));
+    String outputCsv = generateOutput(hashedRows);
+
     String accessToken = getAccessToken(requestFactory, baseUrl, appId, secret);
-    sendBadges(requestFactory, baseUrl, accessToken, hashedBadges);
+    sendBadges(requestFactory, baseUrl, accessToken, outputCsv);
+  }
+
+  private static List<Row> readInput(String inputFilename) throws IOException {
+    File csvFile = new File(inputFilename);
+
+    List<Row> rows = Lists.newArrayList();
+
+    try ( CSVParser parser = CSVParser.parse(csvFile, Charset.forName("UTF-8"), CSVFormat.RFC4180.withHeader()) ) {
+      for ( CSVRecord record : parser ) {
+        String badge = record.get("badge");
+        String riderId = record.get("riderId");
+
+        rows.add(new Row(badge, riderId));
+      }
+    }
+
+    return rows;
+  }
+
+  private static String generateOutput(List<Row> rows) throws IOException {
+    StringBuilder out = new StringBuilder();
+
+    CSVPrinter printer = new CSVPrinter(out, CSVFormat.RFC4180);
+
+    printer.printRecord("badge", "riderId");
+    for ( Row row : rows ) {
+      printer.printRecord(row.badge, row.riderId);
+    }
+
+    printer.close();
+
+    return out.toString();
   }
 
   private final static String algo = "HmacSHA256";
 
-  private static List<String> hashBadges(String badgingKey, String badgeFilename) throws NoSuchAlgorithmException, IOException {
+  private static List<Row> hashRows(String badgingKey, List<Row> rawRows) throws NoSuchAlgorithmException {
     SecretKeySpec signingKey = new SecretKeySpec(badgingKey.getBytes(Charset.forName("UTF-8")), algo);
     Mac mac = Mac.getInstance(algo);
 
-    List<String> hashedBadges;
-    try ( FileInputStream bis = new FileInputStream(badgeFilename) ) {
-      LineNumberReader reader = new LineNumberReader(new InputStreamReader(bis));
-
-      hashedBadges = reader.lines().map(line -> {
-        try {
-          mac.init(signingKey);
-          byte[] raw = mac.doFinal(line.getBytes(Charset.forName("UTF-8")));
-          byte[] hexBytes = new Hex().encode(raw);
-          return new String(hexBytes, "UTF-8");
-        } catch ( Exception e ) {
-          throw new RuntimeException(e);
-        }
-      }).collect(Collectors.toList());
-    }
-
-    return hashedBadges;
+    return rawRows.stream().map(rawRow -> {
+      try {
+        mac.init(signingKey);
+        byte[] raw = mac.doFinal(rawRow.badge.getBytes(Charset.forName("UTF-8")));
+        byte[] hexBytes = new Hex().encode(raw);
+        String hashed = new String(hexBytes, "UTF-8");
+        return new Row(hashed, rawRow.riderId);
+      } catch ( Exception e ) {
+        throw new RuntimeException(e);
+      }
+    }).collect(Collectors.toList());
   }
 
   private static String getAccessToken(HttpRequestFactory requestFactory, String baseUrl, String appId, String secret) throws IOException {
@@ -147,9 +190,9 @@ public class Main {
     return accessTokenResponse.accessToken;
   }
 
-  private static void sendBadges(HttpRequestFactory requestFactory, String baseUrl, String accessToken, List<String> hashedBadges) throws IOException {
+  private static void sendBadges(HttpRequestFactory requestFactory, String baseUrl, String accessToken, String outputCsv) throws IOException {
     HttpRequest uploadRequest =
-      requestFactory.buildPutRequest(new GenericUrl(baseUrl + "/v1/badgeData"), new JsonHttpContent(JSON_FACTORY, new BadgeData(hashedBadges)));
+      requestFactory.buildPutRequest(new GenericUrl(baseUrl + "/v2/badgeData"), ByteArrayContent.fromString("text/csv; charset=utf-8", outputCsv));
     uploadRequest.setHeaders(new HttpHeaders().setAuthorization("Bearer " + accessToken));
     uploadRequest.execute();
   }
