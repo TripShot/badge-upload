@@ -80,13 +80,14 @@ public class Main {
   }
 
   private static void usage() {
-    throw new IllegalArgumentException("usage : --config <config file> --badgesCsv <badge file>");
+    throw new IllegalArgumentException("usage : --config <config file> --badgesCsv <badge file> [ --namespace <namespace> ]");
   }
 
   public static void main(String args[]) throws IOException, InvalidKeyException, NoSuchAlgorithmException {
 
     String configFilename = null;
     String inputFilename = null;
+    String namespace = null;
 
     int k = 0;
     while ( k + 1 < args.length ) {
@@ -97,6 +98,9 @@ public class Main {
           break;
         case "--badgesCsv":
           inputFilename = args[k + 1];
+          break;
+        case "--namespace":
+          namespace = args[k + 1];
           break;
         default:
           usage();
@@ -127,7 +131,7 @@ public class Main {
     String outputCsv = generateOutput(hashedRows);
 
     String accessToken = getAccessToken(requestFactory, baseUrl, appId, secret);
-    sendBadges(requestFactory, baseUrl, accessToken, outputCsv);
+    sendBadges(requestFactory, baseUrl, namespace, accessToken, outputCsv);
   }
 
   private static List<Row> readInput(String inputFilename) throws IOException {
@@ -190,9 +194,14 @@ public class Main {
     return accessTokenResponse.accessToken;
   }
 
-  private static void sendBadges(HttpRequestFactory requestFactory, String baseUrl, String accessToken, String outputCsv) throws IOException {
+  private static void sendBadges(HttpRequestFactory requestFactory, String baseUrl, String namespace, String accessToken, String outputCsv) throws IOException {
+    GenericUrl url = new GenericUrl(baseUrl + "/v2/badgeData");
+    if ( namespace != null ) {
+      url.set("namespace", namespace);
+    }
+
     HttpRequest uploadRequest =
-      requestFactory.buildPutRequest(new GenericUrl(baseUrl + "/v2/badgeData"), ByteArrayContent.fromString("text/csv; charset=utf-8", outputCsv));
+      requestFactory.buildPutRequest(url, ByteArrayContent.fromString("text/csv; charset=utf-8", outputCsv));
     uploadRequest.setHeaders(new HttpHeaders().setAuthorization("Bearer " + accessToken));
     uploadRequest.execute();
   }

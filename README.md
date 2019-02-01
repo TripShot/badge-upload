@@ -41,3 +41,5 @@ where *config* is the name of the property config file described above, and *bad
 
 Before uploading to Tripshot servers, each badge is hashed using HMAC-SHA256 and the badgingKey.
 
+If you need to import badges into an alternate namespace, you can specify the namespace by adding the "--namespace *namespace*" argument.
+
