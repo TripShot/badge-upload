@@ -25,7 +25,7 @@ with its corresponding rider. If using SSO, the riderId must match the id of the
 For example if rider "ABC" has prox badge "QAZ123" and uhf badge "001", and rider "DEF,GHI" has prox badge "POI987" and uhf badge "002", then the badge file is as follows:
 
 ```
-riderId,prox,uhh
+riderId,prox,uhf
 ABC,QAZ123,001
 "DEF,GHI",POI987,002,
 ```
