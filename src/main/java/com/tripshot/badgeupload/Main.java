@@ -23,8 +23,12 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintWriter;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
@@ -88,6 +92,7 @@ public class Main {
     String configFilename = null;
     String inputFilename = null;
     String namespace = null;
+    String dumpFile = null;
 
     int k = 0;
     while ( k + 1 < args.length ) {
@@ -101,6 +106,9 @@ public class Main {
           break;
         case "--namespace":
           namespace = args[k + 1];
+          break;
+        case "--dumpFile":
+          dumpFile = args[k + 1];
           break;
         default:
           usage();
@@ -130,8 +138,14 @@ public class Main {
     List<Row> hashedRows = hashRows(badgingKey, readInput(inputFilename));
     String outputCsv = generateOutput(hashedRows);
 
-    String accessToken = getAccessToken(requestFactory, baseUrl, appId, secret);
-    sendBadges(requestFactory, baseUrl, namespace, accessToken, outputCsv);
+    if ( dumpFile != null ) {
+      try ( OutputStream os = new FileOutputStream(dumpFile)) {
+        os.write(outputCsv.getBytes(StandardCharsets.UTF_8));
+      }
+    } else {
+      String accessToken = getAccessToken(requestFactory, baseUrl, appId, secret);
+      sendBadges(requestFactory, baseUrl, namespace, accessToken, outputCsv);
+    }
   }
 
   private static List<Row> readInput(String inputFilename) throws IOException {
