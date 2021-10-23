@@ -84,7 +84,7 @@ public class Main {
   }
 
   private static void usage() {
-    throw new IllegalArgumentException("usage : --config <config file> --badgesCsv <badge file> [ --namespace <namespace> ]");
+    throw new IllegalArgumentException("usage : --config <config file> --badgesCsv <badge file> [ --dumpFile <dumpfile> ] [ --namespace <namespace> ]");
   }
 
   public static void main(String args[]) throws IOException, InvalidKeyException, NoSuchAlgorithmException {
