@@ -18,6 +18,7 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVPrinter;
 import org.apache.commons.csv.CSVRecord;
+import org.apache.commons.io.input.BOMInputStream;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -26,7 +27,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.PrintWriter;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
@@ -153,7 +153,10 @@ public class Main {
 
     List<Row> rows = Lists.newArrayList();
 
-    try ( CSVParser parser = CSVParser.parse(csvFile, Charset.forName("UTF-8"), CSVFormat.RFC4180.withHeader()) ) {
+    try ( FileInputStream rawFileInput = new FileInputStream(csvFile);
+          BOMInputStream bomInput = new BOMInputStream(rawFileInput);
+          CSVParser parser = CSVParser.parse(bomInput, StandardCharsets.UTF_8, CSVFormat.RFC4180.withHeader())
+    ) {
       for ( CSVRecord record : parser ) {
         String badge = record.get("badge");
         String riderId = record.get("riderId");
