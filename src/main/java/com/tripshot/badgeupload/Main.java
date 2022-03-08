@@ -41,6 +41,8 @@ public class Main {
   private static final HttpTransport HTTP_TRANSPORT = new NetHttpTransport();
   private static final JsonFactory JSON_FACTORY = new JacksonFactory();
 
+  // Tolerate long respones from server for extremely large badge files.
+  private static final int READ_TIMEOUT_MS = 2 * 60 * 1000;
 
   public static class AccessTokenRequest {
     @SuppressWarnings("unused")
@@ -220,6 +222,7 @@ public class Main {
     HttpRequest uploadRequest =
       requestFactory.buildPutRequest(url, ByteArrayContent.fromString("text/csv; charset=utf-8", outputCsv));
     uploadRequest.setHeaders(new HttpHeaders().setAuthorization("Bearer " + accessToken));
+    uploadRequest.setReadTimeout(READ_TIMEOUT_MS);
     uploadRequest.execute();
   }
 }
