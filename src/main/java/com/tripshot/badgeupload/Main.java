@@ -26,13 +26,16 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.LineNumberReader;
 import java.io.OutputStream;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 
@@ -47,11 +50,11 @@ public class Main {
   public static class AccessTokenRequest {
     @SuppressWarnings("unused")
     @Key
-    private String appId;
+    private final String appId;
 
     @SuppressWarnings("unused")
     @Key
-    private String secret;
+    private final String secret;
 
     public AccessTokenRequest(String appId, String secret) {
       this.appId = appId;
@@ -65,62 +68,94 @@ public class Main {
     private String accessToken;
   }
 
+  private static class Row {
+    private final String badge;
+    private final String riderId;
+    private final boolean delete;
+
+    public Row(String badge, String riderId, boolean delete) {
+      this.badge = badge;
+      this.riderId = riderId;
+      this.delete = delete;
+    }
+  }
+
   public static class BadgeData {
     @SuppressWarnings("unused")
     @Key
-    private List<String> hashedCardIds;
+    private final List<String> hashedCardIds;
 
     public BadgeData(List<String> hashedCardIds) {
       this.hashedCardIds = hashedCardIds;
     }
   }
 
-  private static class Row {
-    private String badge;
-    private String riderId;
-
-    public Row(String badge, String riderId) {
-      this.badge = badge;
-      this.riderId = riderId;
-    }
-  }
-
   private static void usage() {
-    throw new IllegalArgumentException("usage : --config <config file> --badgesCsv <badge file> [ --dumpFile <dumpfile> ] [ --namespace <namespace> ]");
+    throw new IllegalArgumentException(
+      "usage : --config <config file> { --badgesCsv <badge file> [ --dumpFile <dumpfile> ] [ --namespace <namespace> ] [ --incremental ] | --badges <badge file> } ");
   }
 
-  public static void main(String args[]) throws IOException, InvalidKeyException, NoSuchAlgorithmException {
+  public static void main(String[] args) throws IOException, NoSuchAlgorithmException {
 
     String configFilename = null;
-    String inputFilename = null;
+    String inputFileNameV1 = null;
+    String inputFileNameV2 = null;
     String namespace = null;
     String dumpFile = null;
+    boolean incremental = false;
+
+    Function<Integer, String> safeArg = k -> {
+      if ( k < args.length ) {
+        return args[k];
+      } else {
+        usage();
+        // unreachable
+        return null;
+      }
+    };
 
     int k = 0;
-    while ( k + 1 < args.length ) {
+    while ( k < args.length ) {
       String opt = args[k];
       switch ( opt ) {
         case "--config":
-          configFilename = args[k + 1];
+          configFilename = safeArg.apply(++k);
           break;
         case "--badgesCsv":
-          inputFilename = args[k + 1];
+          inputFileNameV2 = safeArg.apply(++k);
+          break;
+        case "--badges":
+          inputFileNameV1 = safeArg.apply(++k);
           break;
         case "--namespace":
-          namespace = args[k + 1];
+          namespace = safeArg.apply(++k);
           break;
         case "--dumpFile":
-          dumpFile = args[k + 1];
+          dumpFile = safeArg.apply(++k);
+          break;
+        case "--incremental":
+          incremental = true;
           break;
         default:
           usage();
       }
 
-      k += 2;
+      ++k;
     }
 
-    if ( configFilename == null || inputFilename == null )
+    if ( configFilename == null ) {
       usage();
+    }
+
+    // exactly one of V1 or V2 filename must be specified
+    if ( (inputFileNameV1 == null) == (inputFileNameV2 == null) ) {
+      usage();
+    }
+
+    // dumpFile, namespace, incremental only available for V2 uploads
+    if ( inputFileNameV2 == null && (dumpFile != null || namespace != null || incremental) ) {
+      usage();
+    }
 
     Properties prop = new Properties();
     try ( FileInputStream fis = new FileInputStream(configFilename) ) {
@@ -137,20 +172,26 @@ public class Main {
 
     HttpRequestFactory requestFactory = HTTP_TRANSPORT.createRequestFactory(request -> request.setParser(new JsonObjectParser(JSON_FACTORY)));
 
-    List<Row> hashedRows = hashRows(badgingKey, readInput(inputFilename));
-    String outputCsv = generateOutput(hashedRows);
+    if ( inputFileNameV2 != null ) {
+      List<Row> hashedRows = hashRows(badgingKey, readV2Input(inputFileNameV2, incremental));
+      String outputCsv = generateV2Output(hashedRows, incremental);
 
-    if ( dumpFile != null ) {
-      try ( OutputStream os = new FileOutputStream(dumpFile)) {
-        os.write(outputCsv.getBytes(StandardCharsets.UTF_8));
+      if ( dumpFile != null ) {
+        try ( OutputStream os = new FileOutputStream(dumpFile) ) {
+          os.write(outputCsv.getBytes(StandardCharsets.UTF_8));
+        }
+      } else {
+        String accessToken = getAccessToken(requestFactory, baseUrl, appId, secret);
+        sendV2Badges(requestFactory, baseUrl, namespace, incremental, accessToken, outputCsv);
       }
     } else {
+      List<String> hashedBadges = hashBadges(badgingKey, inputFileNameV1);
       String accessToken = getAccessToken(requestFactory, baseUrl, appId, secret);
-      sendBadges(requestFactory, baseUrl, namespace, accessToken, outputCsv);
+      sendV1Badges(requestFactory, baseUrl, accessToken, hashedBadges);
     }
   }
 
-  private static List<Row> readInput(String inputFilename) throws IOException {
+  private static List<Row> readV2Input(String inputFilename, boolean incrementally) throws IOException {
     File csvFile = new File(inputFilename);
 
     List<Row> rows = Lists.newArrayList();
@@ -163,21 +204,49 @@ public class Main {
         String badge = record.get("badge");
         String riderId = record.get("riderId");
 
-        rows.add(new Row(badge, riderId));
+        boolean delete;
+
+        if ( incrementally ) {
+          String deleteStr = record.get("delete");
+          switch ( deleteStr ) {
+            case "":
+            case "F":
+              delete = false;
+              break;
+            case "T":
+              delete = true;
+              break;
+            default:
+              throw new RuntimeException("Unsupported value for delete : " + deleteStr);
+          }
+        } else {
+          delete = false;
+        }
+
+        rows.add(new Row(badge, riderId, delete));
       }
     }
 
     return rows;
   }
 
-  private static String generateOutput(List<Row> rows) throws IOException {
+  private static String generateV2Output(List<Row> rows, boolean incrementally) throws IOException {
     StringBuilder out = new StringBuilder();
 
     CSVPrinter printer = new CSVPrinter(out, CSVFormat.RFC4180);
 
-    printer.printRecord("badge", "riderId");
+    List<String> headers = new ArrayList<>(List.of("badge", "riderId"));
+    if ( incrementally ) {
+      headers.add("delete");
+    }
+    printer.printRecord(headers);
+
     for ( Row row : rows ) {
-      printer.printRecord(row.badge, row.riderId);
+      List<String> entry = new ArrayList<>(List.of(row.badge, row.riderId));
+      if ( incrementally ) {
+        entry.add(row.delete ? "T" : "F");
+      }
+      printer.printRecord(entry);
     }
 
     printer.close();
@@ -188,20 +257,43 @@ public class Main {
   private final static String algo = "HmacSHA256";
 
   private static List<Row> hashRows(String badgingKey, List<Row> rawRows) throws NoSuchAlgorithmException {
-    SecretKeySpec signingKey = new SecretKeySpec(badgingKey.getBytes(Charset.forName("UTF-8")), algo);
+    SecretKeySpec signingKey = new SecretKeySpec(badgingKey.getBytes(StandardCharsets.UTF_8), algo);
     Mac mac = Mac.getInstance(algo);
 
     return rawRows.stream().map(rawRow -> {
       try {
         mac.init(signingKey);
-        byte[] raw = mac.doFinal(rawRow.badge.getBytes(Charset.forName("UTF-8")));
+        byte[] raw = mac.doFinal(rawRow.badge.getBytes(StandardCharsets.UTF_8));
         byte[] hexBytes = new Hex().encode(raw);
-        String hashed = new String(hexBytes, "UTF-8");
-        return new Row(hashed, rawRow.riderId);
+        String hashed = new String(hexBytes, StandardCharsets.UTF_8);
+        return new Row(hashed, rawRow.riderId, rawRow.delete);
       } catch ( Exception e ) {
         throw new RuntimeException(e);
       }
     }).collect(Collectors.toList());
+  }
+
+  private static List<String> hashBadges(String badgingKey, String badgeFilename) throws NoSuchAlgorithmException, IOException {
+    SecretKeySpec signingKey = new SecretKeySpec(badgingKey.getBytes(StandardCharsets.UTF_8), algo);
+    Mac mac = Mac.getInstance(algo);
+
+    List<String> hashedBadges;
+    try ( FileInputStream bis = new FileInputStream(badgeFilename) ) {
+      LineNumberReader reader = new LineNumberReader(new InputStreamReader(bis));
+
+      hashedBadges = reader.lines().map(line -> {
+        try {
+          mac.init(signingKey);
+          byte[] raw = mac.doFinal(line.getBytes(StandardCharsets.UTF_8));
+          byte[] hexBytes = new Hex().encode(raw);
+          return new String(hexBytes, StandardCharsets.UTF_8);
+        } catch ( Exception e ) {
+          throw new RuntimeException(e);
+        }
+      }).collect(Collectors.toList());
+    }
+
+    return hashedBadges;
   }
 
   private static String getAccessToken(HttpRequestFactory requestFactory, String baseUrl, String appId, String secret) throws IOException {
@@ -213,10 +305,15 @@ public class Main {
     return accessTokenResponse.accessToken;
   }
 
-  private static void sendBadges(HttpRequestFactory requestFactory, String baseUrl, String namespace, String accessToken, String outputCsv) throws IOException {
+  private static void sendV2Badges(HttpRequestFactory requestFactory, String baseUrl, String namespace, boolean incremental, String accessToken,
+                                   String outputCsv)
+    throws IOException {
     GenericUrl url = new GenericUrl(baseUrl + "/v2/badgeData");
     if ( namespace != null ) {
       url.set("namespace", namespace);
+    }
+    if ( incremental ) {
+      url.set("incremental", "true");
     }
 
     HttpRequest uploadRequest =
@@ -225,4 +322,12 @@ public class Main {
     uploadRequest.setReadTimeout(READ_TIMEOUT_MS);
     uploadRequest.execute();
   }
+
+  private static void sendV1Badges(HttpRequestFactory requestFactory, String baseUrl, String accessToken, List<String> hashedBadges) throws IOException {
+    HttpRequest uploadRequest =
+      requestFactory.buildPutRequest(new GenericUrl(baseUrl + "/v1/badgeData"), new JsonHttpContent(JSON_FACTORY, new BadgeData(hashedBadges)));
+    uploadRequest.setHeaders(new HttpHeaders().setAuthorization("Bearer " + accessToken));
+    uploadRequest.execute();
+  }
+
 }
