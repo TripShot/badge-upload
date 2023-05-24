@@ -2,7 +2,7 @@
 
 ## Requirements:
 
-- Java 11
+- Java 8 or higher
 
 - A Java property config file with the following properites set: 
 

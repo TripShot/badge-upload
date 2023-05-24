@@ -235,14 +235,14 @@ public class Main {
 
     CSVPrinter printer = new CSVPrinter(out, CSVFormat.RFC4180);
 
-    List<String> headers = new ArrayList<>(List.of("badge", "riderId"));
+    List<String> headers = new ArrayList<>(Arrays.asList("badge", "riderId"));
     if ( incrementally ) {
       headers.add("delete");
     }
     printer.printRecord(headers);
 
     for ( Row row : rows ) {
-      List<String> entry = new ArrayList<>(List.of(row.badge, row.riderId));
+      List<String> entry = new ArrayList<>(Arrays.asList(row.badge, row.riderId));
       if ( incrementally ) {
         entry.add(row.delete ? "T" : "F");
       }
